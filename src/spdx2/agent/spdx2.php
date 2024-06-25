@@ -669,6 +669,11 @@ class SpdxTwoAgent extends Agent
         }
       }
       foreach ($fileData->getScanners() as $license) {
+        if ($this->licensesInDocument[$license]->getLicenseObj()->getShortName() === "License Expression") {
+          $ast = json_decode($this->licensesInDocument[$license]->getLicenseObj()->getFullName(), true);
+          $licenseExpression = $this->buildExpression($ast, $this->groupId);
+          continue;
+        }
         if (! $this->licensesInDocument[$license]->isTextPrinted()) {
           $textToBePrinted[] = $license;
         }
@@ -676,19 +681,24 @@ class SpdxTwoAgent extends Agent
       $concludedLicensesString = [];
       if ($this->outputFormat == "spdx2tv" ||
           $this->outputFormat == "spdx2csv") {
-        foreach ($fileData->getConcludedLicenses() as $license) {
-          $shortName = $this->licensesInDocument[$license]
-            ->getLicenseObj()->getShortName();
-          if (StringOperation::stringStartsWith($shortName,
-            LicenseRef::SPDXREF_PREFIX)) {
-            $concludedLicensesString[] = $shortName;
-          } else {
-            $concludedLicensesString[] = $this->licensesInDocument[$license]
-              ->getLicenseObj()->getSpdxId();
-          }
+        if (!empty($licenseExpression)) {
+          $concludedLicensesString = $licenseExpression;
         }
-        $concludedLicensesString = SpdxTwoUtils::implodeLicenses(
-          SpdxTwoUtils::removeEmptyLicenses($concludedLicensesString));
+        else {
+          foreach ($fileData->getConcludedLicenses() as $license) {
+            $shortName = $this->licensesInDocument[$license]
+              ->getLicenseObj()->getShortName();
+            if (StringOperation::stringStartsWith($shortName,
+              LicenseRef::SPDXREF_PREFIX)) {
+              $concludedLicensesString[] = $shortName;
+            } else {
+              $concludedLicensesString[] = $this->licensesInDocument[$license]
+                ->getLicenseObj()->getSpdxId();
+            }
+          }
+          $concludedLicensesString = SpdxTwoUtils::implodeLicenses(
+            SpdxTwoUtils::removeEmptyLicenses($concludedLicensesString));
+        }
       }
       if (!$stateWoInfos ||
           ($stateWoInfos && (!empty($fileData->getConcludedLicenses()) ||
@@ -887,6 +897,24 @@ class SpdxTwoAgent extends Agent
             $oldLicObj->getDetectorType(), $oldLicObj->getSpdxId()));
       }
     }
+  }
+
+  protected function buildExpression($node, $groupId)
+  {
+    if ($node['type'] === 'License') {
+      $shortName = $this->licenseDao->getLicenseById($node['value'], $groupId)
+        ->getShortName();
+      if (StringOperation::stringStartsWith($shortName,
+        LicenseRef::SPDXREF_PREFIX)) {
+        return $shortName;
+      }
+      return $this->licenseDao->getLicenseById($node['value'], $groupId)
+        ->getSpdxId();
+    }
+    $left = $this->buildExpression($node['left'], $groupId);
+    $right = $this->buildExpression($node['right'], $groupId);
+    $operator = $node['value'];
+    return "($left $operator $right)";
   }
 }
 
